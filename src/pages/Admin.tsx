@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Plus, Edit, Trash2, Package } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { API_BASE, apiFetch } from '@/lib/api';
 
 const Admin = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -32,36 +33,25 @@ const Admin = () => {
 
   // Fetch products from backend API
   useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const productsArray = await apiFetch('/api/products');
+        setProducts(Array.isArray(productsArray) ? productsArray : []);
+      } catch (err: any) {
+        setError(err.message);
+        toast({
+          title: "Error",
+          description: err.message,
+          variant: "destructive"
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
     fetchProducts();
-  }, []);
-
-  const fetchProducts = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch('http://localhost:5000/api/products');
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        setProducts(result.data);
-      } else {
-        throw new Error(result.message || 'Failed to fetch products');
-      }
-    } catch (error) {
-      console.error('Error fetching products:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load products. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [toast]);
 
   const resetForm = () => {
     setFormData({
@@ -88,34 +78,19 @@ const Admin = () => {
     setIsDialogOpen(true);
   };
 
+  // handleDelete
   const handleDelete = async (productId: string) => {
+    if (!productId) {
+      toast({ title: "Error", description: "Invalid product ID", variant: "destructive" });
+      return;
+    }
     try {
-      const response = await fetch(`http://localhost:5000/api/products/${productId}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-
-      if (result.success) {
-        setProducts(products.filter(p => (p._id || p.id) !== productId));
-        toast({
-          title: "Product deleted",
-          description: "The product has been removed successfully.",
-        });
-      } else {
-        throw new Error(result.message || 'Failed to delete product');
-      }
-    } catch (error) {
-      console.error('Error deleting product:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete product. Please try again.",
-        variant: "destructive"
-      });
+      await fetch(`${API_BASE}/api/products/${productId}`, { method: 'DELETE' }); // simple delete, keep explicit to check res
+      setProducts(products.filter(p => (p._id || p.id) !== productId));
+      toast({ title: "Product deleted", description: "The product has been removed successfully." });
+    } catch (err: any) {
+      console.error('Error deleting product:', err);
+      toast({ title: "Error", description: err.message || "Failed to delete product.", variant: "destructive" });
     }
   };
 
@@ -138,72 +113,41 @@ const Admin = () => {
         name: formData.name,
         description: formData.description,
         price: parseFloat(formData.price),
-        image: formData.image || undefined
+        category: formData.category,
+        image: formData.image || undefined,
       };
 
       if (editingProduct) {
-        // Update existing product
-        const response = await fetch(`http://localhost:5000/api/products/${editingProduct._id || editingProduct.id}`, {
+        const productId = editingProduct._id || editingProduct.id;
+        if (!productId) throw new Error('Product ID is missing');
+        const res = await fetch(`${API_BASE}/api/products/${productId}`, {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(productData),
         });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-
-        if (result.success) {
-          setProducts(products.map(p => 
-            (p._id || p.id) === (editingProduct._id || editingProduct.id) ? result.data : p
-          ));
-          toast({
-            title: "Product updated",
-            description: "The product has been updated successfully.",
-          });
-        } else {
-          throw new Error(result.message || 'Failed to update product');
-        }
+        if (!res.ok) throw new Error('Failed to update product');
+        const data = await res.json();
+        const updatedProduct = data?.success ? data.data : data;
+        setProducts(products.map(p => (p._id || p.id) === productId ? updatedProduct : p));
+        toast({ title: "Product updated", description: "The product has been updated successfully." });
       } else {
-        // Create new product
-        const response = await fetch('http://localhost:5000/api/products', {
+        const res = await fetch(`${API_BASE}/api/products`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(productData),
         });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-
-        if (result.success) {
-          setProducts([...products, result.data]);
-          toast({
-            title: "Product created",
-            description: "New product has been added successfully.",
-          });
-        } else {
-          throw new Error(result.message || 'Failed to create product');
-        }
+        if (!res.ok) throw new Error('Failed to create product');
+        const data = await res.json();
+        const newProduct = data?.success ? data.data : data;
+        setProducts([...products, newProduct]);
+        toast({ title: "Product created", description: "The new product has been added successfully." });
       }
 
-      resetForm();
       setIsDialogOpen(false);
-    } catch (error) {
-      console.error('Error submitting product:', error);
-      toast({
-        title: "Error",
-        description: `Failed to ${editingProduct ? 'update' : 'create'} product. Please try again.`,
-        variant: "destructive"
-      });
+      resetForm();
+    } catch (err: any) {
+      console.error('Error submitting product:', err);
+      toast({ title: "Error", description: err.message || "Failed to save product.", variant: "destructive" });
     } finally {
       setIsSubmitting(false);
     }

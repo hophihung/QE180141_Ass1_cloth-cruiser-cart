@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ShoppingCart, Heart, ArrowLeft, Star, Truck, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { API_BASE, apiFetch } from '@/lib/api';
 
 const ProductDetail = () => {
   const { id } = useParams();
@@ -18,42 +19,53 @@ const ProductDetail = () => {
   const [selectedSize, setSelectedSize] = useState('');
   const [selectedColor, setSelectedColor] = useState('');
   const [quantity, setQuantity] = useState(1);
+  const [retrying, setRetrying] = useState(false);
 
   // Fetch product by ID from backend API
   useEffect(() => {
     const fetchProduct = async () => {
-      if (!id) return;
-      
+      if (!id) {
+        setError('No product ID provided');
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
-        const response = await fetch(`http://localhost:5000/api/products/${id}`);
-        
-        if (!response.ok) {
-          if (response.status === 404) {
-            setError('Product not found');
-          } else {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          return;
-        }
-        
-        const result = await response.json();
-        
-        if (result.success) {
-          setProduct(result.data);
-        } else {
-          throw new Error(result.message || 'Failed to fetch product');
-        }
-      } catch (err) {
-        setError(err.message);
+        setError(null);
+        // replaced direct fetch with apiFetch
+        const productData = await apiFetch(`/api/products/${id}`);
+        if (!productData) throw new Error('Product not found');
+        setProduct(productData);
+        if (productData.sizes?.length) setSelectedSize(productData.sizes[0]);
+        if (productData.colors?.length) setSelectedColor(productData.colors[0]);
+      } catch (err: any) {
+        setError(err.message || 'Failed to fetch product');
         console.error('Error fetching product:', err);
       } finally {
         setLoading(false);
+        setRetrying(false);
       }
     };
 
     fetchProduct();
   }, [id]);
+
+  // Retry function
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      setLoading(true);
+      setError(null);
+      const productData = await apiFetch(`/api/products/${id}`);
+      setProduct(productData || null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to fetch product');
+    } finally {
+      setLoading(false);
+      setRetrying(false);
+    }
+  };
 
   // Show loading state
   if (loading) {

@@ -5,16 +5,15 @@ import ProductGrid from '@/components/product/ProductGrid';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Filter, SlidersHorizontal } from 'lucide-react';
+import { apiFetch } from '@/lib/api';
+import { Product } from '@/types/product';
 
 const Products = () => {
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('name');
   const [filterCategory, setFilterCategory] = useState('all');
-
-  // Base API URL (use Vite env var or fallback to deployed backend)
-  const API_BASE = import.meta.env.VITE_API_URL || 'https://qe180141-ass1.onrender.com';
 
   // Fetch products from backend API
   useEffect(() => {
@@ -22,27 +21,12 @@ const Products = () => {
       try {
         setLoading(true);
         setError(null);
-
-        const response = await fetch(`${API_BASE}/api/products`);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        
-        if (result.success) {
-          setProducts(result.data);
-        } else {
-          // If API returns plain array (not wrapped), handle that too
-          if (Array.isArray(result)) {
-            setProducts(result);
-          } else {
-            throw new Error(result.message || 'Failed to fetch products');
-          }
-        }
+        // Sử dụng hàm apiFetch dùng chung (tự động đọc API_BASE từ .env)
+        const data = await apiFetch('/api/products');
+        // apiFetch trả về data.data nếu response dạng { success, data }
+        setProducts(Array.isArray(data) ? data : []);
       } catch (err: any) {
-        setError(err?.message || String(err));
+        setError(err.message || 'Failed to fetch products');
         console.error('Error fetching products:', err);
       } finally {
         setLoading(false);
@@ -50,7 +34,7 @@ const Products = () => {
     };
 
     fetchProducts();
-  }, [API_BASE]);
+  }, []);
 
   // Get unique categories from fetched products
   const categories = ['all', ...Array.from(new Set(products.map(p => p.category).filter(Boolean)))];

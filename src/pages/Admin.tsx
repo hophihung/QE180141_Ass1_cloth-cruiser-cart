@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import { Product } from '@/types/product';
@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Plus, Edit, Trash2, Package } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { API_BASE, apiFetch } from '@/lib/api';
+import { apiFetch } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 
 const Admin = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -20,7 +21,9 @@ const Admin = () => {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const { token } = useAuth();
 
   const [formData, setFormData] = useState({
     name: '',
@@ -32,26 +35,31 @@ const Admin = () => {
   });
 
   // Fetch products from backend API
+  const loadProducts = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      const productsArray = await apiFetch('/api/products');
+      setProducts(Array.isArray(productsArray) ? productsArray : []);
+    } catch (err: any) {
+      setError(err.message);
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [token, toast]);
+
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const productsArray = await apiFetch('/api/products');
-        setProducts(Array.isArray(productsArray) ? productsArray : []);
-      } catch (err: any) {
-        setError(err.message);
-        toast({
-          title: "Error",
-          description: err.message,
-          variant: "destructive"
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProducts();
-  }, [toast]);
+    loadProducts();
+  }, [loadProducts]);
 
   const resetForm = () => {
     setFormData({
@@ -85,7 +93,7 @@ const Admin = () => {
       return;
     }
     try {
-      await fetch(`${API_BASE}/api/products/${productId}`, { method: 'DELETE' }); // simple delete, keep explicit to check res
+      await apiFetch(`/api/products/${productId}`, { method: 'DELETE' });
       setProducts(products.filter(p => (p._id || p.id) !== productId));
       toast({ title: "Product deleted", description: "The product has been removed successfully." });
     } catch (err: any) {
@@ -114,31 +122,24 @@ const Admin = () => {
         description: formData.description,
         price: parseFloat(formData.price),
         category: formData.category,
+        inStock: formData.inStock,
         image: formData.image || undefined,
       };
 
       if (editingProduct) {
         const productId = editingProduct._id || editingProduct.id;
         if (!productId) throw new Error('Product ID is missing');
-        const res = await fetch(`${API_BASE}/api/products/${productId}`, {
+        const updatedProduct = await apiFetch(`/api/products/${productId}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(productData),
+          json: productData,
         });
-        if (!res.ok) throw new Error('Failed to update product');
-        const data = await res.json();
-        const updatedProduct = data?.success ? data.data : data;
         setProducts(products.map(p => (p._id || p.id) === productId ? updatedProduct : p));
         toast({ title: "Product updated", description: "The product has been updated successfully." });
       } else {
-        const res = await fetch(`${API_BASE}/api/products`, {
+        const newProduct = await apiFetch('/api/products', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(productData),
+          json: productData,
         });
-        if (!res.ok) throw new Error('Failed to create product');
-        const data = await res.json();
-        const newProduct = data?.success ? data.data : data;
         setProducts([...products, newProduct]);
         toast({ title: "Product created", description: "The new product has been added successfully." });
       }
@@ -315,6 +316,11 @@ const Admin = () => {
             {loading ? (
               <div className="text-center py-8">
                 <p className="text-muted-foreground">Loading products...</p>
+              </div>
+            ) : error ? (
+              <div className="text-center py-8 space-y-2">
+                <p className="text-destructive font-medium">{error}</p>
+                <Button variant="outline" onClick={loadProducts}>Try again</Button>
               </div>
             ) : (
               <div className="space-y-4">

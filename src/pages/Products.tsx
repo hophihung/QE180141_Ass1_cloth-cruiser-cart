@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import ProductGrid from '@/components/product/ProductGrid';
@@ -7,6 +7,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Filter, SlidersHorizontal } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { Product } from '@/types/product';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination';
+
+const PAGE_SIZE = 12;
+
+type ProductsApiResponse = {
+  success?: boolean;
+  data?: Product[];
+  meta?: {
+    total?: number;
+    limit?: number | null;
+    page?: number;
+    returned?: number;
+  };
+  message?: string;
+};
 
 const Products = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -14,45 +36,105 @@ const Products = () => {
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('name');
   const [filterCategory, setFilterCategory] = useState('all');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [categoryOptions, setCategoryOptions] = useState<string[]>(['all']);
+  const [refreshIndex, setRefreshIndex] = useState(0);
 
   // Fetch products from backend API
+  useEffect(() => {
+    setPage(1);
+  }, [sortBy, filterCategory]);
+
   useEffect(() => {
     const fetchProducts = async () => {
       try {
         setLoading(true);
         setError(null);
-        // Sử dụng hàm apiFetch dùng chung (tự động đọc API_BASE từ .env)
-        const data = await apiFetch('/api/products');
-        // apiFetch trả về data.data nếu response dạng { success, data }
-        setProducts(Array.isArray(data) ? data : []);
+
+        const params = new URLSearchParams();
+        params.set('page', page.toString());
+        params.set('limit', PAGE_SIZE.toString());
+
+        switch (sortBy) {
+          case 'price-low':
+            params.set('sort', 'price:asc');
+            break;
+          case 'price-high':
+            params.set('sort', 'price:desc');
+            break;
+          case 'name':
+          default:
+            params.set('sort', 'name:asc');
+            break;
+        }
+
+        if (filterCategory !== 'all') {
+          params.set('category', filterCategory);
+        }
+
+        const response = (await apiFetch(`/api/products?${params.toString()}`, {
+          raw: true,
+        })) as ProductsApiResponse | null;
+
+        const data = Array.isArray(response?.data) ? response?.data ?? [] : [];
+        const meta = response?.meta;
+        const totalItems = typeof meta?.total === 'number' ? meta.total : data.length;
+        const limit = typeof meta?.limit === 'number' && meta.limit > 0 ? meta.limit : PAGE_SIZE;
+        const computedTotalPages = Math.max(1, Math.ceil(totalItems / limit));
+
+        if (page > computedTotalPages && computedTotalPages > 0) {
+          setPage(computedTotalPages);
+          return;
+        }
+
+        setProducts(data);
+        setTotal(totalItems);
+
+        const newCategories = new Set<string>(['all']);
+        if (filterCategory !== 'all') {
+          newCategories.add(filterCategory);
+        }
+        data.forEach(product => {
+          if (product.category) {
+            newCategories.add(product.category);
+          }
+        });
+        const sortedCategories = Array.from(newCategories)
+          .filter(Boolean)
+          .map(category => category);
+        const others = sortedCategories.filter(category => category !== 'all').sort();
+        setCategoryOptions(['all', ...others]);
       } catch (err: any) {
-        setError(err.message || 'Failed to fetch products');
+        setError(err?.message || 'Failed to fetch products');
         console.error('Error fetching products:', err);
+        setProducts([]);
+        setTotal(0);
       } finally {
         setLoading(false);
       }
     };
 
     fetchProducts();
-  }, []);
+  }, [page, sortBy, filterCategory, refreshIndex]);
 
-  // Get unique categories from fetched products
-  const categories = ['all', ...Array.from(new Set(products.map(p => p.category).filter(Boolean)))];
+  const totalPages = useMemo(() => {
+    if (!total) return 1;
+    return Math.max(1, Math.ceil(total / PAGE_SIZE));
+  }, [total]);
 
-  // Filter and sort products
-  const filteredProducts = products
-    .filter(product => filterCategory === 'all' || product.category === filterCategory)
-    .sort((a, b) => {
-      switch (sortBy) {
-        case 'price-low':
-          return a.price - b.price;
-        case 'price-high':
-          return b.price - a.price;
-        case 'name':
-        default:
-          return a.name.localeCompare(b.name);
-      }
-    });
+  const handleCategoryChange = (value: string) => {
+    setFilterCategory(value);
+  };
+
+  const handleSortChange = (value: string) => {
+    setSortBy(value);
+  };
+
+  const handleRetry = () => {
+    setRefreshIndex(prev => prev + 1);
+    setPage(1);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -72,12 +154,12 @@ const Products = () => {
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm font-medium">Filter:</span>
-            <Select value={filterCategory} onValueChange={setFilterCategory}>
+            <Select value={filterCategory} onValueChange={handleCategoryChange}>
               <SelectTrigger className="w-40">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {categories.map(category => (
+                {categoryOptions.map(category => (
                   <SelectItem key={category} value={category}>
                     {category === 'all' ? 'All Categories' : category}
                   </SelectItem>
@@ -89,7 +171,7 @@ const Products = () => {
           <div className="flex items-center gap-2">
             <SlidersHorizontal className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm font-medium">Sort:</span>
-            <Select value={sortBy} onValueChange={setSortBy}>
+            <Select value={sortBy} onValueChange={handleSortChange}>
               <SelectTrigger className="w-40">
                 <SelectValue />
               </SelectTrigger>
@@ -102,9 +184,7 @@ const Products = () => {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            <span className="text-sm text-muted-foreground">
-              {filteredProducts.length} products found
-            </span>
+            <span className="text-sm text-muted-foreground">{total} products found</span>
           </div>
         </div>
 
@@ -116,27 +196,71 @@ const Products = () => {
         ) : error ? (
           <div className="text-center py-12">
             <p className="text-red-500 text-lg mb-4">Error: {error}</p>
-            <Button 
-              variant="outline" 
-              onClick={() => window.location.reload()}
+            <Button
+              variant="outline"
+              onClick={handleRetry}
             >
               Retry
             </Button>
           </div>
+        ) : products.length ? (
+          <>
+            <ProductGrid products={products} />
+            {totalPages > 1 && (
+              <Pagination className="mt-8">
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#"
+                      className={page === 1 ? 'pointer-events-none opacity-50' : undefined}
+                      onClick={event => {
+                        event.preventDefault();
+                        setPage(prev => Math.max(1, prev - 1));
+                      }}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }).map((_, index) => {
+                    const pageNumber = index + 1;
+                    return (
+                      <PaginationItem key={pageNumber}>
+                        <PaginationLink
+                          href="#"
+                          isActive={pageNumber === page}
+                          onClick={event => {
+                            event.preventDefault();
+                            setPage(pageNumber);
+                          }}
+                        >
+                          {pageNumber}
+                        </PaginationLink>
+                      </PaginationItem>
+                    );
+                  })}
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#"
+                      className={page === totalPages ? 'pointer-events-none opacity-50' : undefined}
+                      onClick={event => {
+                        event.preventDefault();
+                        setPage(prev => Math.min(totalPages, prev + 1));
+                      }}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            )}
+          </>
         ) : (
-          <ProductGrid products={filteredProducts} />
-        )}
-
-        {filteredProducts.length === 0 && (
           <div className="text-center py-12">
             <p className="text-muted-foreground text-lg mb-4">
               No products found matching your criteria
             </p>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => {
                 setFilterCategory('all');
                 setSortBy('name');
+                setPage(1);
               }}
             >
               Clear Filters

@@ -10,11 +10,11 @@ export function setAuthToken(token: string | null) {
   authToken = token;
 }
 
-type ApiOptions = RequestInit & { json?: unknown };
+type ApiOptions = RequestInit & { json?: unknown; raw?: boolean };
 
 export async function apiFetch(path: string, options: ApiOptions = {}) {
   const url = `${API_BASE}${path}`; // in dev this becomes relative '/api/...'
-  const { json, headers: initHeaders, ...rest } = options;
+  const { json, headers: initHeaders, raw = false, ...rest } = options;
 
   const headers = new Headers(initHeaders);
   if (json !== undefined) {
@@ -63,6 +63,11 @@ export async function apiFetch(path: string, options: ApiOptions = {}) {
   }
 
   const data = await response.json().catch(() => null);
+
+  if (raw) {
+    return data;
+  }
+
   // If API wraps response with { success, data }
   if (data && typeof data === "object" && "success" in data) {
     const payload = data as { success: boolean; data?: unknown };

@@ -2,14 +2,34 @@ import Header from '@/components/layout/Header';
 import Footer from '@/components/layout/Footer';
 import HeroSection from '@/components/ui/hero-section';
 import ProductGrid from '@/components/product/ProductGrid';
-import { mockProducts } from '@/data/mockProducts';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, Star, Truck, Shield, RotateCcw } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { apiFetch } from '@/lib/api';
+import { Product } from '@/types/product';
 
 const Index = () => {
-  // Show only first 4 products on homepage
-  const featuredProducts = mockProducts.slice(0, 4);
+  const {
+    data: featuredProducts = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery<Product[], Error>({
+    queryKey: ['featured-products'],
+    queryFn: async () => {
+      const result = await apiFetch('/api/products?limit=4');
+      if (Array.isArray(result)) return result.slice(0, 4);
+      if (result && typeof result === 'object' && 'data' in (result as Record<string, unknown>)) {
+        const data = (result as { data?: unknown }).data;
+        if (Array.isArray(data)) {
+          return data.slice(0, 4) as Product[];
+        }
+      }
+      return [];
+    },
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -57,7 +77,24 @@ const Index = () => {
             </p>
           </div>
           
-          <ProductGrid products={featuredProducts} />
+          {isLoading ? (
+            <div className="text-center py-12 text-muted-foreground">
+              Loading featured products...
+            </div>
+          ) : isError ? (
+            <div className="text-center py-12 space-y-4">
+              <p className="text-destructive font-medium">{error?.message || 'Failed to load products'}</p>
+              <Button variant="outline" onClick={() => refetch()}>
+                Try again
+              </Button>
+            </div>
+          ) : featuredProducts.length ? (
+            <ProductGrid products={featuredProducts} />
+          ) : (
+            <div className="text-center py-12 text-muted-foreground">
+              No featured products available right now.
+            </div>
+          )}
           
           <div className="text-center mt-12">
             <Button asChild size="lg" className="gap-2">

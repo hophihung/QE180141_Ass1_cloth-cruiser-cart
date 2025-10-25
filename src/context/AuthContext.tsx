@@ -15,6 +15,7 @@ export interface AuthUser {
   id: string;
   email: string;
   createdAt?: string;
+  role?: "user" | "admin";
 }
 
 interface LoginInput {
@@ -51,7 +52,9 @@ const storeToken = (token: string | null) => {
 };
 
 export const AuthProvider = ({ children }: PropsWithChildren) => {
-  const [token, setTokenState] = useState<string | null>(() => getStoredToken());
+  const [token, setTokenState] = useState<string | null>(() =>
+    getStoredToken()
+  );
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -138,7 +141,9 @@ export const AuthProvider = ({ children }: PropsWithChildren) => {
     try {
       if (token) {
         // best-effort logout call, ignore errors
-        await apiFetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+        await apiFetch("/api/auth/logout", { method: "POST" }).catch(
+          () => undefined
+        );
       }
     } finally {
       syncToken(null);
